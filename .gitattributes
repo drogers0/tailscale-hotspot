@@ -1,0 +1,4 @@
+# Shell scripts and unit files must use LF so they run on the Pi (Linux),
+# even when edited/checked out on Windows.
+*.sh text eol=lf
+*.service text eol=lf

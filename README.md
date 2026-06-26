@@ -105,6 +105,64 @@ curl -4 ifconfig.me
 - Visit https://ifconfig.me
 - The IP should match your exit node's public IP
 
+## Boot Automation & Remote Management
+
+> **Note (deployed setup):** On the live Pi the hotspot is started on every boot by a
+> systemd service, with an automatic fallback so a failed start can't lock you out.
+> The deployed AP broadcasts SSID **`vuDevice`** and routes clients through the
+> Tailscale exit node. There is an important Tailscale gotcha — see below.
+
+### Auto-start on boot (`tailscale-hotspot.service`)
+
+`hotspot-up.sh` (run by `tailscale-hotspot.service`) brings the hotspot up at boot:
+
+1. Enables IPv4 forwarding
+2. Sets the Tailscale exit node
+3. Re-applies the FORWARD + MASQUERADE iptables rules
+4. Brings up the `Hotspot` NetworkManager AP
+5. **Self-heal:** if `wlan0` does not come up in AP mode, it reverts to the
+   `vuDevices` client connection and clears the exit node, so the Pi stays
+   reachable instead of stranded.
+
+Install:
+
+```bash
+sudo cp hotspot-up.sh /usr/local/sbin/hotspot-up.sh
+sudo chmod +x /usr/local/sbin/hotspot-up.sh
+sudo cp tailscale-hotspot.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable tailscale-hotspot.service
+# The service controls the AP, so stop NetworkManager from auto-joining it:
+sudo nmcli connection modify Hotspot connection.autoconnect no
+```
+
+### ⚠️ Exit node vs. remote management (important gotcha)
+
+When the Pi uses a Tailscale **exit node**, **inbound connections to the Pi over
+Tailscale stop working** — the Pi can reach out, but you cannot SSH *in* over its
+`100.x` Tailscale address. This is `tailscaled` behavior (peer→Pi traffic is
+dropped while an exit node is active), **not** a routing bug; kernel policy routing
+does not fix it. So while the hotspot is running you cannot manage the Pi over
+Tailscale.
+
+**To get a shell on the Pi while the hotspot is active:**
+
+- **Join the hotspot Wi-Fi** and `ssh pi@10.77.0.1` (the hotspot gateway), **or**
+- **Console** (monitor + keyboard), **or**
+- Temporarily restore Tailscale with `sudo tailscale set --exit-node=`
+  (this disables client tunneling until the next reboot / service run).
+
+### Verifying tunneling
+
+On the Pi, or on any device joined to the hotspot:
+
+```bash
+curl -4 https://ifconfig.me
+```
+
+This should show the **exit node's** public IP, not the local uplink's. If it
+matches the exit node, client traffic is tunneling correctly.
+
 ## Troubleshooting
 
 ### Common Issues

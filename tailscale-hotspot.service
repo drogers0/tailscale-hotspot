@@ -1,0 +1,12 @@
+[Unit]
+Description=Tailscale Wi-Fi hotspot (wlan0 AP, clients egress via exit node)
+After=network-online.target NetworkManager.service tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/hotspot-up.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
