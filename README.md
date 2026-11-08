@@ -163,6 +163,58 @@ curl -4 https://ifconfig.me
 This should show the **exit node's** public IP, not the local uplink's. If it
 matches the exit node, client traffic is tunneling correctly.
 
+### Keeping local-network traffic off the exit node (`campus-bypass-exit.service`)
+
+With the exit node active, *every* non-local destination a hotspot client talks to
+goes through the exit node, including other hosts on the Pi's own upstream network
+when that network is larger than the Pi's directly attached subnet (a campus or
+office network spread across many `10.x` subnets, for example).
+
+This hurts any hotspot client that runs its own Tailscale and talks to a server on
+that upstream network. The client's Tailscale traffic leaves through the exit node,
+so it appears to come from the exit node's public IP, never finds the local path to
+the server, and falls back to a DERP relay. Video then makes a round trip out
+through the exit node's internet connection and a relay and back. On a home
+connection with limited upload this shows up as multi-second latency under load and
+stuttering playback. Meanwhile the Pi itself connects to the same server directly,
+because `tailscaled`'s own packets bypass the exit node.
+
+`campus-bypass-exit.service` adds one policy-routing rule, ahead of Tailscale's
+rules, that sends traffic for private upstream addresses out the Pi's normal uplink
+instead of the exit node:
+
+```
+ip rule add to 10.0.0.0/8 lookup main priority 5200
+```
+
+Internet traffic, including streaming services that check location, still leaves
+through the exit node. Hotspot DNS is unaffected when the Pi resolves through
+Tailscale (`nameserver 100.100.100.100` in `/etc/resolv.conf`), since those queries
+go to `tailscaled`, not to a `10.x` resolver. Change `10.0.0.0/8` in the unit to
+match your upstream network if it uses a different private range. The hotspot
+subnet can fall inside it, because the main table already routes that subnet to
+`wlan0`. Any range you reach through Tailscale subnet routes must not, or the rule
+will send that traffic out the uplink instead of the tunnel.
+
+Install:
+
+```bash
+sudo cp campus-bypass-exit.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now campus-bypass-exit.service
+```
+
+Verify (replace the addresses with a hotspot client and a host on the upstream network):
+
+```bash
+ip rule | grep 5200
+ip route get <upstream-host> from <hotspot-client> iif wlan0   # expect: the uplink, e.g. dev eth0
+ip route get 1.1.1.1 from <hotspot-client> iif wlan0           # expect: dev tailscale0 table 52
+tailscale ping <server>   # from the server: the client should show a direct path, not DERP
+```
+
+Remove with `sudo systemctl disable --now campus-bypass-exit.service`.
+
 ## Troubleshooting
 
 ### Common Issues
