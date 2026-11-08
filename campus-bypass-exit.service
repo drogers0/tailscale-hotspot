@@ -1,0 +1,13 @@
+[Unit]
+Description=Route campus 10.0.0.0/8 around the Tailscale exit node
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/sbin/ip rule add to 10.0.0.0/8 lookup main priority 5200
+ExecStop=/sbin/ip rule del to 10.0.0.0/8 lookup main priority 5200
+
+[Install]
+WantedBy=multi-user.target
